@@ -1,10 +1,12 @@
 import squareVert from './shaders/square.vert.wgsl?raw'
-import redFrag from './shaders/red.frag.wgsl?raw'
+import colerFrag from './shaders/square.frag.wgsl?raw'
 import * as square from './util/square'
 
 interface IPipelLineStruct {
     pipeline: GPURenderPipeline;
     vertexBuffer: GPUBuffer;
+    uniformBuffer: GPUBuffer;
+    uniformGroup: GPUBindGroup;
 }
 
 // initialize webgpu device & config canvas context
@@ -55,7 +57,7 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat) {
         },
         fragment: {
             module: device.createShaderModule({
-                code: redFrag
+                code: colerFrag
             }),
             entryPoint: 'main',
             targets: [
@@ -70,17 +72,42 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat) {
         size: square.vertex.byteLength, // buffer大小
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST // 用途，顶点buffer及可从js中改变
     }
-    // 创建buffer
+    // 创建动态颜色buffer
+    const colorUniformDescriptor: GPUBufferDescriptor = {
+        label: "uniform color buffer for square", // 用于debug
+        size: 4 * 4, // rgba
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    }
+    // 创建顶点buffer
     const vertexBuffer = device.createBuffer(vertexDescriptor)
+    // 创建uniform buffer 
+    const uniformBuffer = device.createBuffer(colorUniformDescriptor);
+
     // 写数据
     device.queue.writeBuffer(vertexBuffer, 0, square.vertex)
+    device.queue.writeBuffer(uniformBuffer, 0, new Float32Array([1, 1, 0, 1]))
+    
     // 创建渲染流水线(render pipeline仅关心绘制)
     const pipeline = await device.createRenderPipelineAsync(descriptor)
-    return  {pipeline, vertexBuffer}
+    // 创建bindgroup
+    const uniformGroup = device.createBindGroup({
+        label: 'Uniform Group with colorBuffer',
+        layout: pipeline.getBindGroupLayout(0), // bind布局，可以自己创建，也可以通过这种方式简单获取
+        entries: [
+            {
+                binding: 0, // group中的资源bind的唯一标识
+                resource: {
+                    buffer: uniformBuffer
+                }
+            }
+        ]
+    })
+    
+    return  {pipeline, vertexBuffer, uniformBuffer, uniformGroup}
 }
 // create & submit device commands
 function draw(device: GPUDevice, context: GPUCanvasContext, pipelineObj: IPipelLineStruct) {
-    const { pipeline } = pipelineObj;
+    const { pipeline, vertexBuffer, uniformGroup } = pipelineObj;
     const commandEncoder = device.createCommandEncoder()
     const view = context.getCurrentTexture().createView()
     const renderPassDescriptor: GPURenderPassDescriptor = {
@@ -96,9 +123,12 @@ function draw(device: GPUDevice, context: GPUCanvasContext, pipelineObj: IPipelL
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
     passEncoder.setPipeline(pipeline)
     // set vertex
-    passEncoder.setVertexBuffer(0, pipelineObj.vertexBuffer)
+    passEncoder.setVertexBuffer(0, vertexBuffer)
+    // set bind group(要先于draw)
+    passEncoder.setBindGroup(0, uniformGroup)
     // 4 vertex form a square
     passEncoder.draw(square.vertexCount)
+
     passEncoder.end()
     // webgpu run in a separate process, all the commands will be executed after submit
     device.queue.submit([commandEncoder.finish()])
