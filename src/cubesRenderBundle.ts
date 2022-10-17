@@ -116,43 +116,18 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat, size:{w
 
 // create & submit device commands
 function draw(
-    device: GPUDevice, 
-    context: GPUCanvasContext,
-    pipelineObj: {
-        pipeline: GPURenderPipeline,
-        vertexBuffer: GPUBuffer,
-        mvpBuffer: GPUBuffer,
-        group: GPUBindGroup,
-        depthView: GPUTextureView
-    }
+    device: GPUDevice,
+    renderPassDescriptor: GPURenderPassDescriptor,
+    renderBundle: Iterable<GPURenderBundle>
 ) {
     const commandEncoder = device.createCommandEncoder()
-    const renderPassDescriptor: GPURenderPassDescriptor = {
-        colorAttachments: [
-            {
-                view: context.getCurrentTexture().createView(),
-                clearValue: { r: 0, g: 0, b: 0, a: 1.0 },
-                loadOp: 'clear',
-                storeOp: 'store'
-            }
-        ],
-        depthStencilAttachment: {
-            view: pipelineObj.depthView,
-            depthClearValue: 1.0,
-            depthLoadOp: 'clear',
-            depthStoreOp: 'store',
-        }
-    }
+    // console.time('executeBundles')
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
-    passEncoder.setPipeline(pipelineObj.pipeline)
-    // set vertex
-    passEncoder.setVertexBuffer(0, pipelineObj.vertexBuffer)
-    {
-        // draw NUM cubes in one draw()
-        passEncoder.setBindGroup(0, pipelineObj.group)
-        passEncoder.draw(cube.vertexCount, NUM)
-    }
+    // execute bundles, could save over 10X CPU time
+    // but won't help with GPU time
+    passEncoder.executeBundles(renderBundle)
     passEncoder.end()
+    // console.timeEnd('executeBundles')
     // webgpu run in a separate process, all the commands will be executed after submit
     device.queue.submit([commandEncoder.finish()])
 }
@@ -177,6 +152,26 @@ async function run(){
         const scale = {x:1, y:1, z:1}
         scene.push({position, rotation, scale})
     }
+    // record renderBundle to save CPU encoder time
+    let renderBundle: Iterable<GPURenderBundle>
+    {
+        const passEncoder = device.createRenderBundleEncoder({
+            colorFormats: [format],
+            depthStencilFormat: 'depth24plus'
+        })
+        passEncoder.setPipeline(pipelineObj.pipeline)
+        // asume we have different objects
+        // need to change vertex and group on every draw
+        // that requires a lot of cpu time for a large NUM
+        console.time('recordBundles')
+        for(let i = 0; i< NUM; i++){
+            passEncoder.setVertexBuffer(0, pipelineObj.vertexBuffer) 
+            passEncoder.setBindGroup(0, pipelineObj.group)
+            passEncoder.draw(cube.vertexCount, 1, 0, i)
+        }
+        console.timeEnd('recordBundles')
+        renderBundle = [passEncoder.finish()]
+    }
     // start loop
     function frame(){
         // update rotation for each object
@@ -186,18 +181,27 @@ async function run(){
             obj.rotation.x = Math.sin(now + i)
             obj.rotation.y = Math.cos(now + i)
             const mvpMatrix = getMvpMatrix(aspect, obj.position, obj.rotation, obj.scale)
-            // update buffer based on offset
-            // device.queue.writeBuffer(
-            //     pipelineObj.mvpBuffer,
-            //     i * 4 * 4 * 4, // offset for each object, no need to 256-byte aligned
-            //     mvpMatrix
-            // )
-            // or save to mvpBuffer first
             mvpBuffer.set(mvpMatrix, i * 4 * 4)
         }
         // the better way is update buffer in one write after loop
         device.queue.writeBuffer(pipelineObj.mvpBuffer, 0, mvpBuffer)
-        draw(device, context, pipelineObj)
+        const renderPassDescriptor: GPURenderPassDescriptor = {
+            colorAttachments: [
+                {
+                    view: context.getCurrentTexture().createView(),
+                    clearValue: { r: 0, g: 0, b: 0, a: 1.0 },
+                    loadOp: 'clear',
+                    storeOp: 'store'
+                }
+            ],
+            depthStencilAttachment: {
+                view: pipelineObj.depthView,
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            }
+        }
+        draw(device, renderPassDescriptor, renderBundle)
         requestAnimationFrame(frame)
     }
     frame()
