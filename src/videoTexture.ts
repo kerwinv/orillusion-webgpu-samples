@@ -13,7 +13,7 @@ async function initWebGPU(canvas: HTMLCanvasElement) {
         throw new Error('No Adapter Found')
     const device = await adapter.requestDevice()
     const context = canvas.getContext('webgpu') as GPUCanvasContext
-    const format = navigator.gpu.getPreferredCanvasFormat ? navigator.gpu.getPreferredCanvasFormat() : context.getPreferredFormat(adapter)
+    const format = navigator.gpu.getPreferredCanvasFormat()
     const devicePixelRatio = window.devicePixelRatio || 1
     canvas.width = canvas.clientWidth * devicePixelRatio
     canvas.height = canvas.clientHeight * devicePixelRatio
@@ -189,13 +189,24 @@ async function run() {
     const rotation = { x: 0, y: 0, z: 0 }
     // start loop
     function frame() {
+        // video frame rate may not different with page render rate
+        // we can use VideoFrame to force video decoding current frame
+        const videoFrame = new VideoFrame(video)
+        // it can be imported to webgpu as texture source with the `webgpu-developer-features` flag enabled
+        // const texture = device.importExternalTexture({
+        //     source: videoFrame // need `webgpu-developer-features`
+        // })
+        // but in this demo, we don't acctully use it, just close it
+        videoFrame.close()
+
         // external texture will be automatically destroyed as soon as JS returns
         // cannot be interrupt by any async functions before renderring
         // e.g. event callbacks, or await functions
-        // so need to re-load external video every frame 
+        // so need to re-load external video every frame
         const texture = device.importExternalTexture({
             source: video
         })
+
         // also need to re-create a bindGroup for external texture
         const videoGroup = device.createBindGroup({
             layout: pipelineObj.pipeline.getBindGroupLayout(1),
