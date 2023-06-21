@@ -62,8 +62,8 @@ function draw(device: GPUDevice, context: GPUCanvasContext, pipeline: GPURenderP
             {
                 view: view,
                 clearValue: { r: 0, g: 0, b: 0, a: 1.0 },
-                loadOp: 'clear', // clear/load
-                storeOp: 'store' // store/discard
+                loadOp: 'clear', // clear/load 绘制前
+                storeOp: 'store' // store/discard //绘制后
             }
         ]
     }
