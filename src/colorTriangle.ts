@@ -11,7 +11,7 @@ async function initWebGPU(canvas: HTMLCanvasElement) {
         throw new Error('No Adapter Found')
     const device = await adapter.requestDevice()
     const context = canvas.getContext('webgpu') as GPUCanvasContext
-    const format = navigator.gpu.getPreferredCanvasFormat()
+    const format = navigator.gpu.getPreferredCanvasFormat ? navigator.gpu.getPreferredCanvasFormat() : context.getPreferredFormat(adapter)
     const devicePixelRatio = window.devicePixelRatio || 1
     canvas.width = canvas.clientWidth * devicePixelRatio
     canvas.height = canvas.clientHeight * devicePixelRatio
@@ -35,6 +35,7 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat) {
             }),
             entryPoint: 'main',
             buffers: [{
+                // 单个的
                 arrayStride: 3 * 4, // 3 float32,
                 attributes: [
                     {
@@ -77,7 +78,7 @@ async function initPipeline(device: GPUDevice, format: GPUTextureFormat) {
     })
     device.queue.writeBuffer(colorBuffer, 0, new Float32Array([1,1,0,1]))
     
-    // create a uniform group for color
+    // create a uniform group for color（uniform 只读小数据64kb, storage 2gb）
     const uniformGroup = device.createBindGroup({
         label: 'Uniform Group with colorBuffer',
         layout: pipeline.getBindGroupLayout(0),
